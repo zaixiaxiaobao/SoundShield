@@ -19,23 +19,32 @@
 
 ### 安装
 
+**方式一：一键安装（推荐）**
+
 ```bash
 # 克隆项目
-git clone https://github.com/YOUR_USERNAME/SoundShield.git
+git clone https://github.com/zaixiaxiaobao/SoundShield.git
 cd SoundShield
 
-# 创建虚拟环境 (推荐)
+# Windows: 双击 install.bat
+# macOS/Linux: bash install.sh
+```
+
+**方式二：手动安装**
+
+```bash
 python -m venv venv
 venv\Scripts\activate  # Windows
 # source venv/bin/activate  # macOS/Linux
 
-# 安装依赖
-pip install -r requirements.txt
+# GPU 用户 (NVIDIA):
+pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-# 安装最新版 transformers (必须从源码安装)
+# CPU 用户:
+# pip install torch
+
 pip install git+https://github.com/huggingface/transformers
-
-# 运行应用
+pip install -r requirements.txt
 python main.py
 ```
 
