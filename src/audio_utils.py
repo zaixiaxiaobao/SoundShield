@@ -9,7 +9,13 @@ from typing import Optional, Tuple
 import numpy as np
 
 # 支持的音频格式
-SUPPORTED_FORMATS = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma', '.aac'}
+SUPPORTED_AUDIO_FORMATS = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma', '.aac'}
+
+# 支持的视频格式
+SUPPORTED_VIDEO_FORMATS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'}
+
+# 所有支持的格式
+SUPPORTED_FORMATS = SUPPORTED_AUDIO_FORMATS | SUPPORTED_VIDEO_FORMATS
 
 
 def is_supported_format(file_path: str) -> bool:
@@ -20,8 +26,89 @@ def is_supported_format(file_path: str) -> bool:
 
 def get_supported_formats_filter() -> str:
     """获取文件对话框的格式过滤器"""
-    formats = " ".join(f"*{ext}" for ext in SUPPORTED_FORMATS)
-    return f"音频文件 ({formats});;所有文件 (*.*)"
+    audio_formats = " ".join(f"*{ext}" for ext in SUPPORTED_AUDIO_FORMATS)
+    video_formats = " ".join(f"*{ext}" for ext in SUPPORTED_VIDEO_FORMATS)
+    all_formats = " ".join(f"*{ext}" for ext in SUPPORTED_FORMATS)
+    return f"所有支持的格式 ({all_formats});;音频文件 ({audio_formats});;视频文件 ({video_formats});;所有文件 (*.*)"
+
+
+def is_video_file(file_path: str) -> bool:
+    """检查是否为视频文件"""
+    ext = Path(file_path).suffix.lower()
+    return ext in SUPPORTED_VIDEO_FORMATS
+
+
+def extract_audio_from_video(video_path: str, output_path: Optional[str] = None) -> Optional[str]:
+    """
+    从视频文件中提取音频
+    
+    Args:
+        video_path: 视频文件路径
+        output_path: 输出音频文件路径，为 None 时自动生成临时文件
+        
+    Returns:
+        提取的音频文件路径，失败返回 None
+    """
+    import subprocess
+    import tempfile
+    
+    try:
+        # 生成输出路径
+        if output_path is None:
+            temp_dir = tempfile.gettempdir()
+            video_name = Path(video_path).stem
+            output_path = os.path.join(temp_dir, f"{video_name}_audio.wav")
+        
+        # 使用 FFmpeg 提取音频
+        cmd = [
+            'ffmpeg',
+            '-i', video_path,
+            '-vn',  # 不处理视频
+            '-acodec', 'pcm_s16le',  # 输出 PCM 格式
+            '-ar', '16000',  # 采样率 16kHz
+            '-ac', '1',  # 单声道
+            '-y',  # 覆盖已存在文件
+            output_path
+        ]
+        
+        # 运行 FFmpeg
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        
+        if result.returncode == 0 and os.path.exists(output_path):
+            return output_path
+        else:
+            print(f"FFmpeg 错误: {result.stderr}")
+            return None
+            
+    except FileNotFoundError:
+        print("错误: 未找到 FFmpeg。请安装 FFmpeg 并添加到系统 PATH。")
+        return None
+    except Exception as e:
+        print(f"提取音频失败: {e}")
+        return None
+
+
+def prepare_audio_file(file_path: str) -> Optional[str]:
+    """
+    准备音频文件用于识别
+    如果是视频文件，先提取音频；如果是音频文件，直接返回路径
+    
+    Args:
+        file_path: 文件路径（音频或视频）
+        
+    Returns:
+        可用于识别的音频文件路径，失败返回 None
+    """
+    if is_video_file(file_path):
+        print(f"检测到视频文件，正在提取音频...")
+        return extract_audio_from_video(file_path)
+    else:
+        return file_path
 
 
 def load_audio(file_path: str, target_sr: int = 16000) -> Tuple[Optional[np.ndarray], Optional[int]]:

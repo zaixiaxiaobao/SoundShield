@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt, Signal, QThread, QMimeData
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 
 from .styles import MAIN_STYLESHEET, DROP_ZONE_ACTIVE, DROP_ZONE_NORMAL, COLORS
-from .audio_utils import is_supported_format, get_supported_formats_filter, get_file_info
+from .audio_utils import is_supported_format, get_supported_formats_filter, get_file_info, is_video_file, prepare_audio_file
 from .transcriber import get_transcriber
 
 
@@ -46,8 +46,15 @@ class TranscribeThread(QThread):
     
     def run(self):
         transcriber = get_transcriber()
+        
+        # 如果是视频文件，先提取音频
+        audio_path = prepare_audio_file(self.audio_path)
+        if audio_path is None:
+            self.error.emit("视频音频提取失败，请确保已安装 FFmpeg")
+            return
+        
         result = transcriber.transcribe(
-            self.audio_path,
+            audio_path,
             progress_callback=lambda msg, pct: self.progress.emit(msg, pct)
         )
         
@@ -91,7 +98,7 @@ class DropZone(QFrame):
         layout.addWidget(sub_label)
         
         # 格式提示
-        format_label = QLabel("支持格式: MP3, WAV, M4A, FLAC, OGG")
+        format_label = QLabel("支持格式: MP3, WAV, M4A, FLAC, OGG, MP4, MKV, AVI, MOV")
         format_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; margin-top: 8px;")
         format_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(format_label)
@@ -113,7 +120,7 @@ class DropZone(QFrame):
             if is_supported_format(file_path):
                 self.file_dropped.emit(file_path)
             else:
-                QMessageBox.warning(self, "格式不支持", "请选择支持的音频格式文件")
+                QMessageBox.warning(self, "格式不支持", "请选择支持的音频或视频格式文件")
     
     def mousePressEvent(self, event):
         self.open_file_dialog()
@@ -215,7 +222,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(result_label)
         
         self.result_text = QTextEdit()
-        self.result_text.setPlaceholderText("识别结果将显示在这里...\n\n提示：\n• 拖拽或点击上方区域选择音频文件\n• 支持 MP3, WAV, M4A, FLAC, OGG 格式\n• 所有处理均在本地完成，数据不会上传")
+        self.result_text.setPlaceholderText("识别结果将显示在这里...\n\n提示：\n• 拖拽或点击上方区域选择文件\n• 支持音频: MP3, WAV, M4A, FLAC, OGG\n• 支持视频: MP4, MKV, AVI, MOV\n• 所有处理均在本地完成，数据不会上传")
         self.result_text.setMinimumHeight(200)
         main_layout.addWidget(self.result_text, 1)
         
