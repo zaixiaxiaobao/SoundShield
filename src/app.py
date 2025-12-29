@@ -17,8 +17,9 @@ from PySide6.QtCore import Qt, Signal, QThread, QMimeData
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 
 from .styles import MAIN_STYLESHEET, DROP_ZONE_ACTIVE, DROP_ZONE_NORMAL, COLORS
-from .audio_utils import is_supported_format, get_supported_formats_filter, get_file_info, is_video_file, prepare_audio_file
+from .audio_utils import is_supported_format, get_supported_formats_filter, get_file_info, is_video_file, prepare_audio_file, get_audio_duration
 from .transcriber import get_transcriber
+from .subtitle import generate_subtitle_from_text
 
 
 class ModelLoaderThread(QThread):
@@ -142,6 +143,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_file: Optional[str] = None
+        self.current_file_duration: Optional[float] = None  # 文件时长
         self.model_loaded = False
         self.transcribe_thread: Optional[TranscribeThread] = None
         
@@ -247,6 +249,12 @@ class MainWindow(QMainWindow):
         self.export_btn.clicked.connect(self.export_result)
         button_layout.addWidget(self.export_btn)
         
+        self.export_srt_btn = QPushButton("🎦 导出字幕")
+        self.export_srt_btn.setObjectName("secondaryBtn")
+        self.export_srt_btn.clicked.connect(self.export_subtitle)
+        self.export_srt_btn.setVisible(False)  # 默认隐藏，仅视频文件显示
+        button_layout.addWidget(self.export_srt_btn)
+        
         main_layout.addLayout(button_layout)
         
         # === 状态栏 ===
@@ -295,9 +303,13 @@ class MainWindow(QMainWindow):
         
         # 获取文件信息
         info = get_file_info(file_path)
+        self.current_file_duration = info.get('duration')
         self.file_label.setText(f"📁 {info['name']} ({info['size_str']}, {info['duration_str']})")
         self.status_label.setText("就绪")
         self.status_label.setStyleSheet(f"color: {COLORS['info']};")
+        
+        # 视频文件显示字幕导出按钮
+        self.export_srt_btn.setVisible(is_video_file(file_path))
         
         # 启用开始按钮
         if self.model_loaded:
@@ -398,6 +410,40 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"已导出到: {file_path}", 5000)
             except Exception as e:
                 QMessageBox.critical(self, "导出失败", f"无法保存文件: {e}")
+    
+    def export_subtitle(self):
+        """导出 SRT 字幕文件"""
+        text = self.result_text.toPlainText()
+        if not text:
+            QMessageBox.information(self, "提示", "请先进行语音识别")
+            return
+        
+        if not self.current_file_duration:
+            QMessageBox.warning(self, "警告", "无法获取文件时长，无法生成字幕")
+            return
+        
+        # 默认文件名
+        default_name = "字幕.srt"
+        if self.current_file:
+            default_name = Path(self.current_file).stem + ".srt"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出字幕文件",
+            default_name,
+            "字幕文件 (*.srt);;所有文件 (*.*)"
+        )
+        
+        if file_path:
+            try:
+                srt_content, _ = generate_subtitle_from_text(
+                    text,
+                    self.current_file_duration,
+                    output_path=file_path
+                )
+                self.statusBar().showMessage(f"字幕已导出到: {file_path}", 5000)
+            except Exception as e:
+                QMessageBox.critical(self, "导出失败", f"无法保存字幕文件: {e}")
 
 
 def create_app():
