@@ -1,29 +1,24 @@
 """
 声隐 SoundShield - 语音识别核心模块
-使用 GLM-ASR-Nano-2512 模型进行语音转文字
+使用 FunASR paraformer-zh 模型进行语音转文字（支持时间戳）
 """
 
 import os
-import traceback
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict, Any
 from pathlib import Path
-
-# 模型相关
-MODEL_ID = "zai-org/GLM-ASR-Nano-2512"
 
 
 class Transcriber:
-    """语音识别器类"""
+    """语音识别器类 - 使用 FunASR"""
     
     def __init__(self):
         self.model = None
-        self.processor = None
         self.device = None
         self.is_loaded = False
         
     def load_model(self, progress_callback: Optional[Callable[[str], None]] = None) -> bool:
         """
-        加载 GLM-ASR 模型
+        加载 FunASR 模型
         
         Args:
             progress_callback: 进度回调函数，接收状态消息
@@ -36,7 +31,7 @@ class Transcriber:
                 progress_callback("正在导入模型库...")
             
             import torch
-            from transformers import GlmAsrForConditionalGeneration, AutoProcessor
+            from funasr import AutoModel
             
             if progress_callback:
                 progress_callback("正在检测设备...")
@@ -53,19 +48,17 @@ class Transcriber:
                     progress_callback("未检测到 GPU，使用 CPU 模式（速度较慢）")
             
             if progress_callback:
-                progress_callback("正在下载/加载模型（首次运行需要下载约 3GB）...")
+                progress_callback("正在下载/加载模型（首次运行需要下载）...")
             
-            # 加载处理器
-            self.processor = AutoProcessor.from_pretrained(MODEL_ID)
-            
-            if progress_callback:
-                progress_callback("正在加载模型权重...")
-            
-            # 加载模型
-            self.model = GlmAsrForConditionalGeneration.from_pretrained(
-                MODEL_ID,
-                torch_dtype="auto",
-                device_map="auto"
+            # 加载 FunASR 模型
+            # paraformer-zh: 中文语音识别
+            # fsmn-vad: 语音活动检测
+            # ct-punc: 标点预测
+            self.model = AutoModel(
+                model="paraformer-zh",
+                vad_model="fsmn-vad",
+                punc_model="ct-punc",
+                device=self.device,
             )
             
             self.is_loaded = True
@@ -76,6 +69,7 @@ class Transcriber:
             return True
             
         except Exception as e:
+            import traceback
             error_msg = f"模型加载失败: {str(e)}"
             print(f"\n{'='*50}")
             print(f"ERROR: {error_msg}")
@@ -90,7 +84,7 @@ class Transcriber:
         self, 
         audio_path: str,
         progress_callback: Optional[Callable[[str, int], None]] = None
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, Any]]:
         """
         转写音频文件
         
@@ -99,7 +93,7 @@ class Transcriber:
             progress_callback: 进度回调函数，接收(状态消息, 进度百分比)
             
         Returns:
-            识别的文本，失败返回 None
+            识别结果字典，包含 text 和 timestamps，失败返回 None
         """
         if not self.is_loaded:
             if progress_callback:
@@ -110,101 +104,57 @@ class Transcriber:
             if progress_callback:
                 progress_callback("正在处理音频...", 10)
             
-            # 处理输入
-            inputs = self.processor.apply_transcription_request(audio_path)
-            inputs = inputs.to(self.model.device, dtype=self.model.dtype)
-            
             if progress_callback:
                 progress_callback("正在识别语音...", 30)
             
-            # 生成文本
-            import torch
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    do_sample=False,
-                    max_new_tokens=2000
-                )
-            
-            if progress_callback:
-                progress_callback("正在解码结果...", 90)
-            
-            # 解码输出
-            decoded_outputs = self.processor.batch_decode(
-                outputs[:, inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
+            # 使用 FunASR 进行识别
+            result = self.model.generate(
+                input=audio_path,
+                batch_size_s=300,  # 批处理大小（秒）
+                sentence_timestamp=True,  # 启用句子时间戳
             )
             
             if progress_callback:
-                progress_callback("识别完成！", 100)
+                progress_callback("正在处理结果...", 90)
             
-            # 返回第一个结果
-            if decoded_outputs:
-                return decoded_outputs[0].strip()
-            return ""
+            # 解析结果
+            if result and len(result) > 0:
+                res = result[0]
+                
+                # 提取文本
+                text = res.get("text", "")
+                
+                # 提取时间戳
+                timestamps = []
+                if "sentence_info" in res:
+                    for sent in res["sentence_info"]:
+                        timestamps.append({
+                            "text": sent.get("text", ""),
+                            "start": sent.get("start", 0) / 1000.0,  # 转换为秒
+                            "end": sent.get("end", 0) / 1000.0,
+                        })
+                elif "timestamp" in res:
+                    # 备用：使用 timestamp 字段
+                    for ts in res["timestamp"]:
+                        timestamps.append({
+                            "start": ts[0] / 1000.0,
+                            "end": ts[1] / 1000.0,
+                        })
+                
+                if progress_callback:
+                    progress_callback("识别完成！", 100)
+                
+                return {
+                    "text": text,
+                    "timestamps": timestamps,
+                    "raw": res  # 保留原始结果
+                }
             
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"识别失败: {str(e)}", 0)
-            return None
-    
-    def transcribe_audio_array(
-        self,
-        audio_array,
-        sample_rate: int = 16000,
-        progress_callback: Optional[Callable[[str, int], None]] = None
-    ) -> Optional[str]:
-        """
-        转写音频数组（用于实时录音）
-        
-        Args:
-            audio_array: numpy 音频数组
-            sample_rate: 采样率
-            progress_callback: 进度回调函数
-            
-        Returns:
-            识别的文本
-        """
-        if not self.is_loaded:
-            return None
-        
-        try:
-            if progress_callback:
-                progress_callback("正在处理音频...", 20)
-            
-            # 处理输入
-            inputs = self.processor.apply_transcription_request(audio_array)
-            inputs = inputs.to(self.model.device, dtype=self.model.dtype)
-            
-            if progress_callback:
-                progress_callback("正在识别语音...", 50)
-            
-            # 生成文本
-            import torch
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    do_sample=False,
-                    max_new_tokens=2000
-                )
-            
-            if progress_callback:
-                progress_callback("正在解码结果...", 90)
-            
-            # 解码输出
-            decoded_outputs = self.processor.batch_decode(
-                outputs[:, inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
-            )
-            
-            if progress_callback:
-                progress_callback("识别完成！", 100)
-            
-            if decoded_outputs:
-                return decoded_outputs[0].strip()
-            return ""
+            return {"text": "", "timestamps": [], "raw": None}
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             if progress_callback:
                 progress_callback(f"识别失败: {str(e)}", 0)
             return None

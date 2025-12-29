@@ -18,51 +18,46 @@
 - 建议有 NVIDIA GPU (6GB+ 显存) 以获得最佳性能
 - 无 GPU 也可运行，但速度较慢
 - **FFmpeg** (用于视频音频提取，可选)
+  - Windows: `winget install ffmpeg`
+  - macOS: `brew install ffmpeg`
+  - Linux: `sudo apt install ffmpeg`
 
 ### 安装
-
-**方式一：一键安装（推荐）**
 
 ```bash
 # 克隆项目
 git clone https://github.com/zaixiaxiaobao/SoundShield.git
 cd SoundShield
 
-# Windows: 双击 install.bat
-# macOS/Linux: bash install.sh
-```
-
-**方式二：手动安装**
-
-```bash
+# 创建虚拟环境
 python -m venv venv
 venv\Scripts\activate  # Windows
 # source venv/bin/activate  # macOS/Linux
 
-# GPU 用户 (NVIDIA):
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+# GPU 用户先安装 CUDA 版 PyTorch (可选，大幅提升速度):
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# CPU 用户:
-# pip install torch
-
-pip install git+https://github.com/huggingface/transformers
+# 安装依赖
 pip install -r requirements.txt
+
+# 运行
 python main.py
 ```
 
-> ⚠️ **首次运行**会自动下载约 3GB 的模型文件，请保持网络通畅。
+> ⚠️ **首次运行**会自动下载约 1GB 的模型文件，请保持网络通畅。
 
 ## 📖 使用说明
 
-1. 启动应用后，拖拽音频文件到窗口或点击选择文件
+1. 启动应用后，拖拽音频/视频文件到窗口或点击选择文件
 2. 等待识别完成
-3. 复制或导出识别结果
+3. 复制文本/导出 TXT/导出字幕(SRT)
 
 ## 🛠️ 技术栈
 
 - **UI**: PySide6 (Qt for Python)
-- **模型**: GLM-ASR-Nano-2512
+- **语音识别**: FunASR paraformer-zh (阿里达摩院)
 - **音频处理**: librosa, soundfile
+- **字幕生成**: 支持 SRT 格式，精确时间戳
 
 ## 📄 许可证
 

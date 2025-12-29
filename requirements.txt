@@ -1,20 +1,14 @@
-# SoundShield dependencies
-
-# UI framework (LGPL, free for commercial use)
+# UI Framework
 PySide6>=6.6.0
 
-# Hugging Face transformers (install from source: pip install git+https://github.com/huggingface/transformers)
-# transformers>=5.0.0
+# Speech Recognition (Alibaba FunASR)
+funasr>=1.0.0
 
-# Accelerate (required for device_map)
-accelerate>=1.0.0
-
-# PyTorch - Choose ONE based on your hardware:
-# GPU (NVIDIA): pip install torch --index-url https://download.pytorch.org/whl/cu121
-# CPU only: pip install torch
+# PyTorch
 torch>=2.0.0
+torchaudio>=2.0.0
 
-# Audio processing
+# Audio Processing
 soundfile>=0.12.0
 librosa>=0.10.0
 

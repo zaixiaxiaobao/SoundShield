@@ -19,7 +19,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 from .styles import MAIN_STYLESHEET, DROP_ZONE_ACTIVE, DROP_ZONE_NORMAL, COLORS
 from .audio_utils import is_supported_format, get_supported_formats_filter, get_file_info, is_video_file, prepare_audio_file, get_audio_duration
 from .transcriber import get_transcriber
-from .subtitle import generate_subtitle_from_text
+from .subtitle import generate_subtitle
 
 
 class ModelLoaderThread(QThread):
@@ -38,7 +38,7 @@ class ModelLoaderThread(QThread):
 class TranscribeThread(QThread):
     """转写处理线程"""
     progress = Signal(str, int)
-    finished = Signal(str)
+    finished = Signal(object)  # 改为 object 以支持字典
     error = Signal(str)
     
     def __init__(self, audio_path: str):
@@ -59,7 +59,7 @@ class TranscribeThread(QThread):
             progress_callback=lambda msg, pct: self.progress.emit(msg, pct)
         )
         
-        if result is not None:
+        if result is not None and result.get("text"):
             self.finished.emit(result)
         else:
             self.error.emit("识别失败，请检查音频文件")
@@ -87,7 +87,7 @@ class DropZone(QFrame):
         layout.addWidget(icon_label)
         
         # 主文字
-        main_label = QLabel("拖拽音频文件到此处")
+        main_label = QLabel("拖拽音视频文件到此处")
         main_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {COLORS['text_primary']};")
         main_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(main_label)
@@ -143,7 +143,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_file: Optional[str] = None
-        self.current_file_duration: Optional[float] = None  # 文件时长
+        self.current_file_duration: Optional[float] = None
+        self.last_transcription_result = None  # 保存最后一次识别结果
         self.model_loaded = False
         self.transcribe_thread: Optional[TranscribeThread] = None
         
@@ -347,12 +348,17 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet(f"color: {COLORS['warning']};")
         self.statusBar().showMessage(message)
     
-    def on_transcribe_finished(self, result: str):
+    def on_transcribe_finished(self, result):
         """转写完成"""
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         
-        self.result_text.setText(result)
+        # 保存结果用于字幕导出
+        self.last_transcription_result = result
+        
+        # 显示文本
+        text = result.get("text", "") if isinstance(result, dict) else result
+        self.result_text.setText(text)
         
         self.status_label.setText("✅ 识别完成")
         self.status_label.setStyleSheet(f"color: {COLORS['success']};")
@@ -413,13 +419,13 @@ class MainWindow(QMainWindow):
     
     def export_subtitle(self):
         """导出 SRT 字幕文件"""
-        text = self.result_text.toPlainText()
-        if not text:
+        if not self.last_transcription_result:
             QMessageBox.information(self, "提示", "请先进行语音识别")
             return
         
-        if not self.current_file_duration:
-            QMessageBox.warning(self, "警告", "无法获取文件时长，无法生成字幕")
+        timestamps = self.last_transcription_result.get("timestamps", [])
+        if not timestamps:
+            QMessageBox.warning(self, "警告", "识别结果中没有时间戳信息")
             return
         
         # 默认文件名
@@ -436,10 +442,10 @@ class MainWindow(QMainWindow):
         
         if file_path:
             try:
-                srt_content, _ = generate_subtitle_from_text(
-                    text,
-                    self.current_file_duration,
-                    output_path=file_path
+                srt_content, _ = generate_subtitle(
+                    self.last_transcription_result,
+                    output_path=file_path ,
+                    source_path=self.current_file
                 )
                 self.statusBar().showMessage(f"字幕已导出到: {file_path}", 5000)
             except Exception as e:
